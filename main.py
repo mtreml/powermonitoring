@@ -1,129 +1,257 @@
-try:
-    from functools import lru_cache
-except ImportError:
-    # Python 2 does stdlib does not have lru_cache so let's just
-    # create a dummy decorator to avoid crashing
-    print ("WARNING: Cache for this example is available on Python 3 only.")
-    def lru_cache():
-        def dec(f):
-            def _(*args, **kws):
-                return f(*args, **kws)
-            return _
-        return dec
-
-from os.path import dirname, join
-
-import pandas as pd
-
-from bokeh.io import curdoc
-from bokeh.layouts import row, column
-from bokeh.models import ColumnDataSource
-from bokeh.models.widgets import PreText, Select
-from bokeh.plotting import figure
-from bokeh.server.server import Server
 from bokeh.application import Application
 from bokeh.application.handlers.function import FunctionHandler
-
-DATA_DIR = "C://Users//msfuser//PowerMeter//data"
-
-DEFAULT_TICKERS = ['AAPL', 'GOOG', 'INTC', 'BRCM', 'YHOO']
-
-def nix(val, lst):
-    return [x for x in lst if x != val]
-
-@lru_cache()
-def load_ticker(ticker):
-    fname = join(DATA_DIR, '52-SD002_cleaned.xlsx')
-    data = pd.read_excel(fname)
-    data = data.set_index('DateTime')
-    return pd.DataFrame({ticker: data["P[W]"], ticker+'_returns': data["P[W]"].diff()})
-
-@lru_cache()
-def get_data(t1, t2):
-    df1 = load_ticker(t1)
-    df2 = load_ticker(t2)
-    data = pd.concat([df1, df2], axis=1)
-    data = data.dropna()
-    data['t1'] = data[t1]
-    data['t2'] = data[t2]
-    data['t1_returns'] = data[t1+'_returns']
-    data['t2_returns'] = data[t2+'_returns']
-    return data
+from bokeh.layouts import widgetbox, row, column
+from bokeh.models import ColumnDataSource, HoverTool, DatetimeTickFormatter, DaysTicker, FuncTickFormatter, Range1d
+from bokeh.models.widgets import CheckboxGroup
+from bokeh.palettes import Viridis as palette
+from bokeh.plotting import figure
+from bokeh.server.server import Server
 
 
+import itertools
+import numpy as np
+import os
+import pandas as pd
 
-# set up widgets
 
-stats = PreText(text='', width=500)
-ticker1 = Select(value='AAPL', options=nix('GOOG', DEFAULT_TICKERS))
-ticker2 = Select(value='GOOG', options=nix('AAPL', DEFAULT_TICKERS))
+s
+data = pd.read_excel(os.path.join(__file__, "data\52-SD002_cleaned.xlsx"))
 
-# set up plots
 
-source = ColumnDataSource(data=dict(date=[], t1=[], t2=[], t1_returns=[], t2_returns=[]))
-source_static = ColumnDataSource(data=dict(date=[], t1=[], t2=[], t1_returns=[], t2_returns=[]))
-tools = 'pan,wheel_zoom,xbox_select,reset'
+def datetime(x):
+    return np.array(x, dtype=np.datetime64)
+    
 
-corr = figure(plot_width=350, plot_height=350,
-              tools='pan,wheel_zoom,box_select,reset')
-corr.circle('t1_returns', 't2_returns', size=2, source=source,
-            selection_color="orange", alpha=0.6, nonselection_alpha=0.1, selection_alpha=0.4)
+def make_dataset(measurement_list):
+    
+    # Define data source dict
+    d = dict(date=data["DateTime"])
+    for meas in measurement_list:
+        d[meas] = data[meas]
+            
+    return ColumnDataSource(data=d)
 
-ts1 = figure(plot_width=900, plot_height=200, tools=tools, x_axis_type='datetime', active_drag="xbox_select")
-ts1.line('date', 't1', source=source_static)
-ts1.circle('date', 't1', size=1, source=source, color=None, selection_color="orange")
 
-ts2 = figure(plot_width=900, plot_height=200, tools=tools, x_axis_type='datetime', active_drag="xbox_select")
-ts2.x_range = ts1.x_range
-ts2.line('date', 't2', source=source_static)
-ts2.circle('date', 't2', size=1, source=source, color=None, selection_color="orange")
+def make_power_plot(src):
+      
+    # Setup plot
+    p = figure(plot_width=800,
+               plot_height=300,
+               title="Power",
+               x_axis_type='datetime',
+               toolbar_location="right",
+               tools="pan,wheel_zoom,box_zoom,reset")
+    
+    # Color
+    colors = palette[4]
+    
+    # Configure hover tool      
+    hovertool = HoverTool(
+                        tooltips=[
+                                    ( 'Date',   '@date{%d-%b-%Y %H:%M}'            ),
+                                    ( 'P',   '@{P[W]} W' ), # use @{ } for field names with spaces
+                                    ( 'P1',  '@{P1[W]} W' ), # use @{ } for field names with spaces
+                                    ( 'P2',  '@{P2[W]} W' ), # use @{ } for field names with spaces
+                                    ( 'P3',  '@{P3[W]} W' ), # use @{ } for field names with spaces
+                                 ],
 
-# set up callbacks
+                        formatters={
+                                    'date'  : 'datetime', # use 'datetime' formatter for 'date' field
+                                    'P[W]'  : 'printf',   # use 'printf' formatter for 'adj close' field
+                                    'P1[W]' : 'printf',   # use 'printf' formatter for 'adj close' field
+                                    'P2[W]' : 'printf',   # use 'printf' formatter for 'adj close' field
+                                    'P3[W]' : 'printf',   # use 'printf' formatter for 'adj close' field
+                                                      # use default 'numeral' formatter for other fields
+                                    },
 
-def ticker1_change(attrname, old, new):
-    ticker2.options = nix(new, DEFAULT_TICKERS)
-    update()
+                        # display a tooltip whenever the cursor is vertically in line with a glyph
+                        mode='vline',
+                        )
 
-def ticker2_change(attrname, old, new):
-    ticker1.options = nix(new, DEFAULT_TICKERS)
-    update()
+    # Configure axes
+    # - x -
+    p.xaxis.ticker = DaysTicker(days=np.arange(0, len(data["DateTime"])))
+    p.xaxis.major_label_orientation = 1
+    p.xaxis.formatter=DatetimeTickFormatter(
+                                            hours=["%d %b %Y"],
+                                            days=["%d %b %Y"],
+                                            months=["%d %b %Y"],
+                                            years=["%d %b %Y"],
+                                            )
 
-def update(selected=None):
-    t1, t2 = ticker1.value, ticker2.value
+    # - y -
+    p.yaxis.axis_label = "Power in W"
 
-    data = get_data(t1, t2)
-    source.data = source.from_df(data[['t1', 't2', 't1_returns', 't2_returns']])
-    source_static.data = source.data
+    # Add plots
+    l0 = p.line("date", "P[W]", source=src, line_color=colors[0], legend="Total")
+    l1 = p.line("date", "P1[W]", source=src, line_color=colors[1], legend="Phase 1")
+    l2 = p.line("date", "P2[W]", source=src, line_color=colors[2], legend="Phase 2")
+    l3 = p.line("date", "P3[W]", source=src, line_color=colors[3], legend="Phase 3")
+    
+    # Add hovertool
+    hovertool.renderers = [l1]
+    p.add_tools(hovertool)
+    
+    # Legend
+    p.legend.location = "top_left"
+    p.legend.click_policy="hide"
 
-    update_stats(data, t1, t2)
+    return p, l0, l1, l2, l3
 
-    corr.title.text = '%s returns vs. %s returns' % (t1, t2)
-    ts1.title.text, ts2.title.text = t1, t2
 
-def update_stats(data, t1, t2):
-    stats.text = str(data[[t1, t2, t1+'_returns', t2+'_returns']].describe())
+def make_current_plot(src):
+      
+    # Setup plot
+    p = figure(plot_width=800,
+               plot_height=300,
+               title="Current",
+               x_axis_type='datetime',
+               toolbar_location="right",
+               tools="pan,wheel_zoom,box_zoom,reset")
+    
+    # Color
+    colors = palette[4]
+    
+    # Configure hover tool
+    hovertool = HoverTool(
+                        tooltips=[
+                                    ( 'Date',   '@date{%d-%b-%Y %H:%M}'            ),
+                                    ( 'I1',  '@{A1[A]} A' ), # use @{ } for field names with spaces
+                                    ( 'I2',  '@{A2[A]} A' ), # use @{ } for field names with spaces
+                                    ( 'I3',  '@{A3[A]} A' ), # use @{ } for field names with spaces
+                                 ],
 
-ticker1.on_change('value', ticker1_change)
-ticker2.on_change('value', ticker2_change)
+                        formatters={
+                                    'date'  : 'datetime', # use 'datetime' formatter for 'date' field
+                                    'A1[A]' : 'printf',   # use 'printf' formatter for 'adj close' field
+                                    'A2[A]' : 'printf',   # use 'printf' formatter for 'adj close' field
+                                    'A3[A]' : 'printf',   # use 'printf' formatter for 'adj close' field
+                                                      # use default 'numeral' formatter for other fields
+                                    },
 
-def selection_change(attrname, old, new):
-    t1, t2 = ticker1.value, ticker2.value
-    data = get_data(t1, t2)
-    selected = source.selected.indices
-    if selected:
-        data = data.iloc[selected, :]
-    update_stats(data, t1, t2)
+                        # display a tooltip whenever the cursor is vertically in line with a glyph
+                        mode='vline',
+                        )
 
-source.on_change('selected', selection_change)
+    # Configure axes
+    # - x -
+    p.xaxis.ticker = DaysTicker(days=np.arange(0, len(data["DateTime"])))
+    p.xaxis.major_label_orientation = 1
+    p.xaxis.formatter=DatetimeTickFormatter(
+                                            hours=["%d %b %Y"],
+                                            days=["%d %b %Y"],
+                                            months=["%d %b %Y"],
+                                            years=["%d %b %Y"],
+                                            )
 
-# set up layout
-widgets = column(ticker1, ticker2, stats)
-main_row = row(corr, widgets)
-series = column(ts1, ts2)
-layout = column(main_row, series)
+    # - y -
+    p.yaxis.axis_label = "Current in A"
 
-# initialize
-update()
+    # Add plots
+    l1 = p.line("date", "A1[A]", source=src, line_color=colors[1], legend="Phase 1")
+    l2 = p.line("date", "A2[A]", source=src, line_color=colors[2], legend="Phase 2")
+    l3 = p.line("date", "A3[A]", source=src, line_color=colors[3], legend="Phase 3")
+    
+    # Add hovertool
+    hovertool.renderers = [l1]
+    p.add_tools(hovertool)
+    
+    # Legend
+    p.legend.location = "top_left"
+    p.legend.click_policy="hide"
 
-cur_doc().add_root(layout)
-cur_doc().title = "Stocks"
+    return p, l1, l2, l3
+
+
+def make_voltage_plot(src):
+      
+    # Setup plot
+    p = figure(plot_width=800,
+               plot_height=300,
+               title="Voltage",
+               x_axis_type='datetime',
+               toolbar_location="right",
+               tools="pan,wheel_zoom,box_zoom,reset")
+    
+    # Color
+    colors = palette[4]   
+    
+    # Configure hover tool
+    hovertool = HoverTool(
+                            tooltips=[
+                                        ( 'Date',   '@date{%d-%b-%Y %H:%M}'            ),
+                                        ( 'U1',  '@{V1[V]} V' ), # use @{ } for field names with spaces
+                                        ( 'U2',  '@{V2[V]} V' ), # use @{ } for field names with spaces
+                                        ( 'U3',  '@{V3[V]} V' ), # use @{ } for field names with spaces
+                                     ],
+
+                            formatters={
+                                        'date'  : 'datetime', # use 'datetime' formatter for 'date' field
+                                        'V1[V]' : 'printf',   # use 'printf' formatter for 'adj close' field
+                                        'V2[V]' : 'printf',   # use 'printf' formatter for 'adj close' field
+                                        'V3[V]' : 'printf',   # use 'printf' formatter for 'adj close' field
+                                                          # use default 'numeral' formatter for other fields
+                                        },
+
+                            # display a tooltip whenever the cursor is vertically in line with a glyph
+                            mode='vline',
+                            )
+
+    # Configure axes
+    # - x -
+    p.xaxis.ticker = DaysTicker(days=np.arange(0, len(data["DateTime"])))
+    p.xaxis.major_label_orientation = 1
+    p.xaxis.formatter=DatetimeTickFormatter(
+                                            hours=["%d %b %Y"],
+                                            days=["%d %b %Y"],
+                                            months=["%d %b %Y"],
+                                            years=["%d %b %Y"],
+                                            )
+
+    # - y -
+    p.yaxis.axis_label = "Voltage in V"
+    p.y_range=Range1d(225, 260)
+
+    # Add plots
+    l1 = p.line("date", "V1[V]", source=src, line_color=colors[1], legend="Phase 1")
+    l2= p.line("date", "V2[V]", source=src, line_color=colors[2], legend="Phase 2")
+    l3 = p.line("date", "V3[V]", source=src, line_color=colors[3], legend="Phase 3")
+    
+    # Add hovertool
+    hovertool.renderers = [l1]
+    p.add_tools(hovertool)
+    
+    # Legend
+    p.legend.location = "top_left"
+    p.legend.click_policy="hide"
+    
+    return p, l1, l2, l3
+
+
+def make_document(doc):
+    
+    # Load initial data
+    src_power = make_dataset(["P[W]", "P1[W]", "P2[W]", "P3[W]"]) 
+    src_voltage = make_dataset(["V1[V]", "V2[V]", "V3[V]"])
+    src_current = make_dataset(["A1[A]", "A2[A]", "A3[A]"]) 
+    
+    # Create initial plot
+    plot_power, p0, p1, p2, p3 = make_power_plot(src_power)
+    plot_voltage, v1, v2, v3 = make_voltage_plot(src_voltage)
+    plot_current, i1, i2, i3 = make_current_plot(src_current)
+
+    # Layout
+    layout = column(row(plot_power),
+                    row(plot_voltage),
+                    row(plot_current)
+                   )
+    
+    #doc.add_periodic_callback(update, 1000)
+    doc.title("Power Monitoring Agok")
+    doc.add_root(layout)
+
+    
+# Start Server    
+apps = {'/': Application(FunctionHandler(make_document))}
+server = Server(apps, port=5000)
+server.start()
