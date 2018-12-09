@@ -1,8 +1,12 @@
 # Power Monitoring
-Bokeh dashboard to monitor power consumption with live data from Kyoritsu KEW 6305
+Webserver to monitor power consumption with live data from Kyoritsu KEW 6305
 
+## Bokeh dashboard
+Bokeh dashboard to visualize live power data from Kyoritsu KEW 6305
 
-## Start wireshark USB stream monitoring
+## USB driver
+
+### Start wireshark USB stream monitoring
 
 ```bash
 sudo modprobe usbmon
