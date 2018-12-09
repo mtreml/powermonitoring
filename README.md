@@ -4,7 +4,7 @@ Bokeh dashboard to monitor power consumption with live data from Kyoritsu KEW 63
 
 ## Start wireshark USB stream monitoring
 
-´´´bash
+```bash
 sudo modprobe usbmon
 sudo setfacl -m u:$USER:r /dev/usbmon*
-´´´
+```
